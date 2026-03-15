@@ -1,403 +1,272 @@
 """
-Duomenų paruošimo modulis IoT atakų aptikimo sistemai.
-
-Šis modulis atsakingas už:
-- Duomenų įkėlimą
-- Trūkstamų reikšmių tvarkymą
-- Kategorinių kintamųjų kodavimą
-- Duomenų normalizavimą
-- Duomenų padalijimą mokymo/testavimo aibėms
+=============================================================================
+Modulis: data_preprocessing.py
+Aprašymas: BoT-IoT duomenų rinkinio įkėlimas, valymas ir paruošimas
+=============================================================================
 """
 
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
 import warnings
 warnings.filterwarnings('ignore')
 
 
-class DataPreprocessor:
-    """Klasė duomenų paruošimui ir transformacijoms."""
-    
-    def __init__(self, dataset_type='botiot'):
-        """
-        Inicializuoja duomenų paruošimo objektą.
-        
-        Args:
-            dataset_type (str): Duomenų rinkinio tipas ('botiot', 'unsw', 'cic')
-        """
-        self.dataset_type = dataset_type
-        self.scaler = StandardScaler()
-        self.label_encoders = {}
-        self.feature_names = []
-        
-    def load_data(self, filepath, sample_size=None):
-        """
-        Įkelia duomenis iš CSV failo.
-        
-        Args:
-            filepath (str): Kelias iki duomenų failo
-            sample_size (int): Pavyzdžių skaičius (None = visi)
-            
-        Returns:
-            pd.DataFrame: Įkelti duomenys
-        """
-        print(f"Įkeliami duomenys iš: {filepath}")
-        
-        try:
-            # Įkeliame duomenis
-            if sample_size:
-                df = pd.read_csv(filepath, nrows=sample_size)
-            else:
-                df = pd.read_csv(filepath)
-                
-            print(f"✓ Sėkmingai įkelta {len(df)} įrašų")
-            print(f"✓ Stulpelių skaičius: {len(df.columns)}")
-            
-            return df
-            
-        except Exception as e:
-            print(f"✗ Klaida įkeliant duomenis: {e}")
-            return None
-    
-    def explore_data(self, df):
-        """
-        Atlieka pradinę duomenų analizę.
-        
-        Args:
-            df (pd.DataFrame): Duomenų rinkinys
-        """
-        print("\n" + "="*60)
-        print("DUOMENŲ APŽVALGA")
-        print("="*60)
-        
-        print(f"\nForma: {df.shape}")
-        print(f"\nPirmieji 5 įrašai:")
-        print(df.head())
-        
-        print(f"\nDuomenų tipai:")
-        print(df.dtypes.value_counts())
-        
-        print(f"\nTrūkstamų reikšmių statistika:")
-        missing = df.isnull().sum()
-        if missing.sum() > 0:
-            missing_percent = (missing / len(df)) * 100
-            missing_df = pd.DataFrame({
-                'Stulpelis': missing.index,
-                'Trūkstama': missing.values,
-                'Procentas': missing_percent.values
-            })
-            print(missing_df[missing_df['Trūkstama'] > 0])
-        else:
-            print("✓ Trūkstamų reikšmių nėra")
-            
-        # Tikslinės klasės pasiskirstymas
-        if 'label' in df.columns:
-            print(f"\nKlasių pasiskirstymas:")
-            print(df['label'].value_counts())
-            print(f"\nKlasių santykis:")
-            print(df['label'].value_counts(normalize=True))
-        elif 'attack' in df.columns:
-            print(f"\nAtakų tipų pasiskirstymas:")
-            print(df['attack'].value_counts())
-            
-    def handle_missing_values(self, df):
-        """
-        Tvarko trūkstamas reikšmes.
-        
-        Args:
-            df (pd.DataFrame): Duomenų rinkinys
-            
-        Returns:
-            pd.DataFrame: Apdoroti duomenys
-        """
-        print("\nTvarkomos trūkstamos reikšmės...")
-        
-        # Skaičių stulpeliams - užpildome medianos reikšmėmis
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        for col in numeric_cols:
-            if df[col].isnull().sum() > 0:
-                df[col].fillna(df[col].median(), inplace=True)
-        
-        # Kategoriniams stulpeliams - užpildome dažniausiais
-        categorical_cols = df.select_dtypes(include=['object']).columns
-        for col in categorical_cols:
-            if df[col].isnull().sum() > 0:
-                df[col].fillna(df[col].mode()[0], inplace=True)
-                
-        print("✓ Trūkstamos reikšmės apdorotos")
-        return df
-    
-    def remove_unnecessary_features(self, df):
-        """
-        Pašalina nereikalingus požymius.
-        
-        Args:
-            df (pd.DataFrame): Duomenų rinkinys
-            
-        Returns:
-            pd.DataFrame: Filtruoti duomenys
-        """
-        print("\nŠalinami nereikalingi požymiai...")
-        
-        # Bendri nereikalingi stulpeliai
-        unnecessary_cols = []
-        
-        # ID tipo stulpeliai
-        id_cols = [col for col in df.columns if col.lower() in 
-                   ['id', 'index', 'flow_id', 'src_ip', 'dst_ip']]
-        unnecessary_cols.extend(id_cols)
-        
-        # Konstantūs stulpeliai (viena unikali reikšmė)
-        const_cols = [col for col in df.columns if df[col].nunique() == 1]
-        unnecessary_cols.extend(const_cols)
-        
-        # Šaliname dublikatus iš sąrašo
-        unnecessary_cols = list(set(unnecessary_cols))
-        
-        # Paliekame tikslinę klasę
-        if 'label' in unnecessary_cols:
-            unnecessary_cols.remove('label')
-        if 'attack' in unnecessary_cols:
-            unnecessary_cols.remove('attack')
-            
-        df = df.drop(columns=unnecessary_cols, errors='ignore')
-        
-        print(f"✓ Pašalinti {len(unnecessary_cols)} stulpeliai")
-        if unnecessary_cols:
-            print(f"  Pašalinti: {unnecessary_cols}")
-            
-        return df
-    
-    def encode_categorical_features(self, df):
-        """
-        Koduoja kategorinius požymius į skaičius.
-        
-        Args:
-            df (pd.DataFrame): Duomenų rinkinys
-            
-        Returns:
-            pd.DataFrame: Koduoti duomenys
-        """
-        print("\nKoduojami kategoriniai požymiai...")
-        
-        categorical_cols = df.select_dtypes(include=['object']).columns
-        # Nekoduojame tikslinės klasės dar
-        categorical_cols = [col for col in categorical_cols 
-                           if col not in ['label', 'attack', 'category']]
-        
-        for col in categorical_cols:
-            le = LabelEncoder()
-            df[col] = le.fit_transform(df[col].astype(str))
-            self.label_encoders[col] = le
-            
-        print(f"✓ Užkoduoti {len(categorical_cols)} kategoriniai stulpeliai")
-        
-        return df
-    
-    def prepare_target_variable(self, df, binary_classification=True):
-        """
-        Paruošia tikslinę kintamąjį klasifikacijai.
-        
-        Args:
-            df (pd.DataFrame): Duomenų rinkinys
-            binary_classification (bool): Ar naudoti dvejetainę klasifikaciją
-            
-        Returns:
-            tuple: (X, y) požymiai ir tikslas
-        """
-        print("\nRuošiamas tikslinė kintamasis...")
-        
-        # Nustatome tikslinį stulpelį
-        if 'label' in df.columns:
-            target_col = 'label'
-        elif 'attack' in df.columns:
-            target_col = 'attack'
-        elif 'category' in df.columns:
-            target_col = 'category'
-        else:
-            raise ValueError("Tikslinės klasės stulpelis nerastas!")
-        
-        # Dvejetainė klasifikacija: normalus vs ataka
-        if binary_classification:
-            # Konvertuojame į binary (0 = normal, 1 = attack)
-            y = df[target_col].apply(
-                lambda x: 0 if str(x).lower() in ['normal', '0', 'benign'] else 1
-            )
-            print("✓ Dvejetainė klasifikacija: Normal (0) vs Attack (1)")
-        else:
-            # Kelių klasių klasifikacija
-            le = LabelEncoder()
-            y = le.fit_transform(df[target_col])
-            self.label_encoders['target'] = le
-            print(f"✓ Kelių klasių klasifikacija: {len(le.classes_)} klasės")
-            print(f"  Klasės: {le.classes_}")
-        
-        # Požymiai
-        X = df.drop(columns=[target_col], errors='ignore')
-        self.feature_names = X.columns.tolist()
-        
-        print(f"✓ Požymių skaičius: {X.shape[1]}")
-        print(f"✓ Pavyzdžių skaičius: {X.shape[0]}")
-        
-        return X, y
-    
-    def normalize_features(self, X_train, X_test=None):
-        """
-        Normalizuoja požymius (StandardScaler).
-        
-        Args:
-            X_train (pd.DataFrame): Mokymo duomenys
-            X_test (pd.DataFrame): Testavimo duomenys (optional)
-            
-        Returns:
-            tuple: Normalizuoti X_train, X_test (jei pateikti)
-        """
-        print("\nNormalizuojami požymiai...")
-        
-        # Mokymo duomenims
-        X_train_scaled = self.scaler.fit_transform(X_train)
-        X_train_scaled = pd.DataFrame(X_train_scaled, 
-                                       columns=X_train.columns,
-                                       index=X_train.index)
-        
-        # Testavimo duomenims (jei pateikti)
-        if X_test is not None:
-            X_test_scaled = self.scaler.transform(X_test)
-            X_test_scaled = pd.DataFrame(X_test_scaled,
-                                        columns=X_test.columns,
-                                        index=X_test.index)
-            print("✓ Normalizuoti mokymo ir testavimo duomenys")
-            return X_train_scaled, X_test_scaled
-        
-        print("✓ Normalizuoti mokymo duomenys")
-        return X_train_scaled
-    
-    def split_data(self, X, y, test_size=0.2, random_state=42):
-        """
-        Padalina duomenis į mokymo ir testavimo aibes.
-        
-        Args:
-            X (pd.DataFrame): Požymiai
-            y (pd.Series): Tikslas
-            test_size (float): Testavimo aibės dalis
-            random_state (int): Random seed
-            
-        Returns:
-            tuple: X_train, X_test, y_train, y_test
-        """
-        print(f"\nDalinama į mokymo ({1-test_size:.0%}) ir testavimo ({test_size:.0%}) aibes...")
-        
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, 
-            test_size=test_size, 
-            random_state=random_state,
-            stratify=y  # Išlaikome proporcijas
-        )
-        
-        print(f"✓ Mokymo aibė: {X_train.shape[0]} pavyzdžiai")
-        print(f"✓ Testavimo aibė: {X_test.shape[0]} pavyzdžiai")
-        
-        # Patikriname klasių balansą
-        print("\nKlasių pasiskirstymas mokymo aibėje:")
-        print(pd.Series(y_train).value_counts())
-        
-        return X_train, X_test, y_train, y_test
-    
-    def preprocess_pipeline(self, filepath, binary_classification=True, 
-                           test_size=0.2, sample_size=None):
-        """
-        Pilnas duomenų paruošimo proceso vykdymas.
-        
-        Args:
-            filepath (str): Kelias iki duomenų failo
-            binary_classification (bool): Dvejetainė ar kelių klasių
-            test_size (float): Testavimo aibės dalis
-            sample_size (int): Pavyzdžių skaičius (None = visi)
-            
-        Returns:
-            tuple: X_train, X_test, y_train, y_test (normalizuoti)
-        """
-        print("="*60)
-        print("DUOMENŲ PARUOŠIMO PROCESAS")
-        print("="*60)
-        
-        # 1. Įkeliame duomenis
-        df = self.load_data(filepath, sample_size)
-        if df is None:
-            return None
-        
-        # 2. Apžvelgiame duomenis
-        self.explore_data(df)
-        
-        # 3. Tvarkomę trūkstamas reikšmes
-        df = self.handle_missing_values(df)
-        
-        # 4. Šaliname nereikalingus požymius
-        df = self.remove_unnecessary_features(df)
-        
-        # 5. Koduojame kategorinius požymius
-        df = self.encode_categorical_features(df)
-        
-        # 6. Ruošiame tikslinę kintamąjį
-        X, y = self.prepare_target_variable(df, binary_classification)
-        
-        # 7. Dalijame duomenis
-        X_train, X_test, y_train, y_test = self.split_data(
-            X, y, test_size=test_size
-        )
-        
-        # 8. Normalizuojame
-        X_train, X_test = self.normalize_features(X_train, X_test)
-        
-        print("\n" + "="*60)
-        print("DUOMENŲ PARUOŠIMAS BAIGTAS")
-        print("="*60)
-        
-        return X_train, X_test, y_train, y_test
+# -------------------------------------------------------------------------
+# BoT-IoT duomenų rinkinio požymių sąrašas (UNSW pagal oficialią dokumentaciją)
+# -------------------------------------------------------------------------
+BOT_IOT_COLUMNS = [
+    'pkSeqID', 'stime', 'flgs', 'proto', 'saddr', 'sport', 'daddr', 'dport',
+    'pkts', 'bytes', 'state', 'ltime', 'seq', 'dur', 'mean', 'stddev',
+    'smac', 'dmac', 'sum', 'min', 'max', 'soui', 'doui', 'sco', 'dco',
+    'spkts', 'dpkts', 'sbytes', 'dbytes', 'rate', 'srate', 'drate',
+    'attack', 'category', 'subcategory'
+]
+
+# Požymiai, kurie bus pašalinti (identifikatoriai, MAC adresai ir kt.)
+DROP_FEATURES = ['pkSeqID', 'stime', 'ltime', 'smac', 'dmac',
+                 'soui', 'doui', 'sco', 'dco', 'saddr', 'daddr',
+                 'sport', 'dport', 'seq']
+
+# Kategoriniai požymiai, kuriuos reikia koduoti
+CATEGORICAL_FEATURES = ['proto', 'state', 'flgs']
 
 
-def main():
-    """Demonstracinis pavyzdys."""
-    
-    # Sukuriame demo duomenis (jei nėra tikrų)
-    print("Demonstracinis pavyzdys su sintetiniais duomenimis")
-    
-    # Generuojame sintetinius duomenis
-    np.random.seed(42)
-    n_samples = 1000
-    
-    demo_data = {
-        'duration': np.random.exponential(5, n_samples),
-        'protocol': np.random.choice(['TCP', 'UDP', 'ICMP'], n_samples),
-        'src_port': np.random.randint(1024, 65535, n_samples),
-        'dst_port': np.random.randint(1, 1024, n_samples),
-        'packets': np.random.poisson(50, n_samples),
-        'bytes': np.random.exponential(1000, n_samples),
-        'rate': np.random.uniform(0, 100, n_samples),
-        'label': np.random.choice(['normal', 'attack'], n_samples, p=[0.7, 0.3])
-    }
-    
-    df = pd.DataFrame(demo_data)
-    demo_path = '/home/claude/iot_intrusion_detection/data/demo_data.csv'
-    df.to_csv(demo_path, index=False)
-    
-    # Vykdome paruošimo procesą
-    preprocessor = DataPreprocessor(dataset_type='demo')
-    X_train, X_test, y_train, y_test = preprocessor.preprocess_pipeline(
-        demo_path,
-        binary_classification=True,
-        test_size=0.2,
-        sample_size=None
+def load_bot_iot(filepath: str, nrows: int = None) -> pd.DataFrame:
+    """
+    Įkelia BoT-IoT CSV failą.
+    Automatiškai aptinka, ar failas turi antraštę, ar ne.
+
+    Parametrai:
+        filepath : str  – kelias iki CSV failo
+        nrows    : int  – eilučių skaičius (None = visos)
+
+    Grąžina:
+        pd.DataFrame su pavadintais stulpeliais
+    """
+    print(f"[INFO] Įkeliami duomenys iš: {filepath}")
+
+    # Patikriname pirmą eilutę – ar tai antraštė ar duomenys?
+    first_row = pd.read_csv(filepath, nrows=1, header=None).iloc[0]
+    first_val = str(first_row[0]).strip()
+
+    # Jei pirmoji reikšmė yra skaičius – failas neturi antraštės
+    has_header = not first_val.lstrip('-').replace('.', '', 1).isdigit()
+
+    if has_header:
+        df = pd.read_csv(filepath, nrows=nrows, low_memory=False)
+        print(f"[INFO] Aptikta antraštės eilutė – naudojami originalūs pavadinimai")
+    else:
+        df = pd.read_csv(filepath, nrows=nrows, low_memory=False, header=None)
+        df.columns = BOT_IOT_COLUMNS[:len(df.columns)]
+        print(f"[INFO] Antraštė nerasta – priskirti BoT-IoT stulpelių pavadinimai")
+
+    print(f"[INFO] Įkelta eilučių: {len(df):,}, stulpelių: {df.shape[1]}")
+    print(f"[INFO] Stulpeliai: {list(df.columns)}")
+    return df
+
+
+def generate_synthetic_bot_iot(n_samples: int = 50000, random_state: int = 42) -> pd.DataFrame:
+    """
+    Generuoja sintetinius BoT-IoT tipo duomenis demonstracijai,
+    kai realus duomenų rinkinys nepasiekiamas.
+
+    Atakų klasės ir jų tikimybės atspindi realų BoT-IoT pasiskirstymą:
+      - Normal          ~15%
+      - DoS             ~35%
+      - DDoS            ~30%
+      - Reconnaissance  ~12%
+      - Theft            ~8%
+    """
+    print(f"[INFO] Generuojami {n_samples:,} sintetiniai BoT-IoT įrašai...")
+    rng = np.random.default_rng(random_state)
+
+    categories = ['Normal', 'DoS', 'DDoS', 'Reconnaissance', 'Theft']
+    weights     = [0.15,    0.35,  0.30,   0.12,             0.08]
+    cat_labels  = rng.choice(categories, size=n_samples, p=weights)
+
+    def _vals(cat):
+        """Grąžina kiekvieno požymio reikšmių intervalus pagal atakos tipą."""
+        base = {
+            'Normal':         dict(pkts=(1,50),    bytes=(64,1500),   dur=(0.01,10),   rate=(1,100)),
+            'DoS':            dict(pkts=(100,5000), bytes=(40,100),    dur=(0.001,0.5), rate=(5000,50000)),
+            'DDoS':           dict(pkts=(200,8000), bytes=(40,100),    dur=(0.0001,0.1),rate=(10000,100000)),
+            'Reconnaissance': dict(pkts=(1,10),    bytes=(40,200),    dur=(0.001,1),   rate=(1,50)),
+            'Theft':          dict(pkts=(10,200),  bytes=(200,5000),  dur=(0.1,30),    rate=(10,500)),
+        }
+        return base[cat]
+
+    rows = []
+    for cat in cat_labels:
+        v = _vals(cat)
+        pkts  = rng.integers(*v['pkts'])
+        byt   = rng.integers(*v['bytes']) * pkts
+        dur   = rng.uniform(*v['dur'])
+        rate  = rng.uniform(*v['rate'])
+        spkts = int(pkts * rng.uniform(0.3, 0.7))
+        dpkts = pkts - spkts
+        sbytes = int(byt * rng.uniform(0.2, 0.8))
+        dbytes = byt - sbytes
+
+        rows.append({
+            'proto':    rng.choice(['tcp', 'udp', 'icmp', 'arp'], p=[0.5,0.3,0.15,0.05]),
+            'state':    rng.choice(['FIN', 'CON', 'RST', 'REQ', 'INT'], p=[0.3,0.3,0.2,0.1,0.1]),
+            'flgs':     rng.choice(['e s', 'e', '   ', 'e g'], p=[0.4,0.3,0.2,0.1]),
+            'pkts':     pkts,
+            'bytes':    byt,
+            'dur':      dur,
+            'mean':     byt / max(pkts, 1),
+            'stddev':   rng.uniform(0, 200),
+            'sum':      byt * 2,
+            'min':      rng.integers(40, 100),
+            'max':      rng.integers(100, 1500),
+            'spkts':    spkts,
+            'dpkts':    dpkts,
+            'sbytes':   sbytes,
+            'dbytes':   dbytes,
+            'rate':     rate,
+            'srate':    rate * rng.uniform(0.3, 0.7),
+            'drate':    rate * rng.uniform(0.3, 0.7),
+            'attack':   0 if cat == 'Normal' else 1,
+            'category': cat,
+            'subcategory': cat,
+        })
+
+    df = pd.DataFrame(rows)
+    print(f"[INFO] Sugeneruota. Klasių pasiskirstymas:\n{df['category'].value_counts().to_string()}")
+    return df
+
+
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Valo duomenis:
+      - Pašalina identifikacinius ir nesvarbius stulpelius
+      - Keičia begalybes ir NaN į medianas
+      - Pašalina pilnai besidubliuojančias eilutes
+    """
+    print("[INFO] Pradedamas duomenų valymas...")
+
+    # Pašalinami nereikalingi stulpeliai (jei egzistuoja)
+    drop_cols = [c for c in DROP_FEATURES if c in df.columns]
+    df = df.drop(columns=drop_cols)
+    print(f"[INFO] Pašalinti stulpeliai: {drop_cols}")
+
+    # Pakeičiamos begalinės reikšmės į NaN, tada užpildomos mediana
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    for col in num_cols:
+        median = df[col].median()
+        df[col].fillna(median, inplace=True)
+
+    # Šalinami besidubliuojantys įrašai
+    before = len(df)
+    df.drop_duplicates(inplace=True)
+    print(f"[INFO] Pašalinta {before - len(df):,} besidubliuojančių eilučių")
+
+    return df
+
+
+def encode_features(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """
+    Koduoja kategorinius požymius naudojant LabelEncoder.
+
+    Grąžina:
+        df          – transformuotas DataFrame
+        encoders    – žodynas su kiekvieno stulpelio LabelEncoder objektu
+    """
+    print("[INFO] Koduojami kategoriniai požymiai...")
+    encoders = {}
+    cat_cols = [c for c in CATEGORICAL_FEATURES if c in df.columns]
+
+    for col in cat_cols:
+        le = LabelEncoder()
+        df[col] = le.fit_transform(df[col].astype(str))
+        encoders[col] = le
+        print(f"  {col}: {list(le.classes_)}")
+
+    return df, encoders
+
+
+def prepare_datasets(df: pd.DataFrame,
+                     target_col: str = 'attack',
+                     multiclass_col: str = 'category',
+                     test_size: float = 0.2,
+                     random_state: int = 42):
+    print("[INFO] Paruošiamos mokymo / testavimo aibės...")
+
+    # Jei 'attack' stulpelio nėra – ieškome alternatyvų
+    for alt in [target_col, 'label', 'Label', 'class']:
+        if alt in df.columns:
+            target_col = alt
+            break
+    else:
+        raise ValueError(f"Nerasta jokia etiketės kolona! Turimi stulpeliai: {list(df.columns)}")
+
+    # Jei 'category' stulpelio nėra – naudojame target_col kaip atsarginę
+    if multiclass_col not in df.columns:
+        for alt in ['subcategory', 'attack_type', 'Category']:
+            if alt in df.columns:
+                multiclass_col = alt
+                print(f"[INFO] Daugiaklasei klasifikacijai naudojamas stulpelis: '{multiclass_col}'")
+                break
+        else:
+            print(f"[ĮSPĖJIMAS] Stulpelis '{multiclass_col}' nerastas – daugiaklasei bus naudojama '{target_col}'")
+            multiclass_col = target_col
+    """
+    Paruošia mokymo ir testavimo aibes dvejetainei bei daugiaklasei klasifikacijai.
+
+    Parametrai:
+        df             – išvalytas ir užkoduotas DataFrame
+        target_col     – dvejetainės klasifikacijos etiketė ('attack')
+        multiclass_col – daugiaklasei klasifikacijai ('category')
+        test_size      – testavimo dalies dydis
+        random_state   – atsitiktinumo sėkla
+
+    Grąžina:
+        Žodynas su X_train, X_test, y_bin_train, y_bin_test,
+        y_multi_train, y_multi_test, feature_names, scaler, label_encoder
+    """
+    # Požymių matrica (be etikečių stulpelių)
+    drop_targets = [c for c in [target_col, multiclass_col, 'subcategory'] if c in df.columns]
+    X = df.drop(columns=drop_targets)
+    feature_names = list(X.columns)
+
+    # Dvejetainės etiketės
+    y_binary = df[target_col].values if target_col in df.columns else None
+
+    # Daugiaklasei – koduojame kategorijų pavadinimus
+    le_multi = LabelEncoder()
+    y_multi = le_multi.fit_transform(df[multiclass_col].astype(str)) \
+        if multiclass_col in df.columns else None
+
+    # Skaidymas
+    X_train, X_test, \
+    y_bin_train, y_bin_test, \
+    y_multi_train, y_multi_test = train_test_split(
+        X, y_binary, y_multi,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=y_binary
     )
-    
-    print(f"\nGalutinės formos:")
-    print(f"X_train: {X_train.shape}")
-    print(f"X_test: {X_test.shape}")
-    print(f"y_train: {y_train.shape}")
-    print(f"y_test: {y_test.shape}")
 
+    # Normalizavimas (StandardScaler)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled  = scaler.transform(X_test)
 
-if __name__ == "__main__":
-    main()
+    print(f"[INFO] Mokymo aibė : {X_train_scaled.shape[0]:,} įrašų")
+    print(f"[INFO] Testavimo aibė: {X_test_scaled.shape[0]:,} įrašų")
+    print(f"[INFO] Požymių skaičius: {len(feature_names)}")
+
+    return {
+        'X_train': X_train_scaled,
+        'X_test':  X_test_scaled,
+        'y_bin_train':   y_bin_train,
+        'y_bin_test':    y_bin_test,
+        'y_multi_train': y_multi_train,
+        'y_multi_test':  y_multi_test,
+        'feature_names': feature_names,
+        'scaler':        scaler,
+        'label_encoder': le_multi,
+    }

@@ -1,0 +1,41 @@
+{
+  "mode": "binary",
+  "models": {
+    "Random Forest": {
+      "accuracy": 0.998192,
+      "precision": 0.998619,
+      "recall": 0.999539,
+      "f1": 0.999079,
+      "roc_auc": 0.999813,
+      "train_time_s": 0.195,
+      "inference_time_ms": 39.81
+    },
+    "SVM": {
+      "accuracy": 0.996835,
+      "precision": 0.999077,
+      "recall": 0.997696,
+      "f1": 0.998386,
+      "roc_auc": 0.999221,
+      "train_time_s": 0.549,
+      "inference_time_ms": 33.697
+    },
+    "KNN": {
+      "accuracy": 0.996835,
+      "precision": 0.998158,
+      "recall": 0.998618,
+      "f1": 0.998387,
+      "roc_auc": 0.975592,
+      "train_time_s": 0.001,
+      "inference_time_ms": 2138.84
+    },
+    "MLP Neural Network": {
+      "accuracy": 0.993671,
+      "precision": 0.998612,
+      "recall": 0.994931,
+      "f1": 0.996768,
+      "roc_auc": 0.998552,
+      "train_time_s": 0.787,
+      "inference_time_ms": 1.726
+    }
+  }
+}
