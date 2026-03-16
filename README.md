@@ -89,7 +89,7 @@ MLP Naleur Network
 
 ---
 
-## 🔬 BoT-IoT duomenų rinkinys
+## BoT-IoT duomenų rinkinys
 
 **Šaltinis:** UNSW Canberra, 2018  
 **Atsisiuntimas:** https://research.unsw.edu.au/projects/bot-iot-dataset  
